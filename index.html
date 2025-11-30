@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Outlier | 认知离群值探索器</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Noto+Serif+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- HTML2Canvas (Fixed Version) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <!-- KaTeX for Math Rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        serif: ['Playfair Display', 'Noto Serif SC', 'serif'],
+                    },
+                    colors: {
+                        obsidian: '#08080a',
+                        charcoal: '#121214',
+                        gold: '#d4af37',
+                        'gold-dim': '#8a7e55',
+                        mist: 'rgba(255, 255, 255, 0.05)',
+                    },
+                    animation: {
+                        'fade-in': 'fadeIn 0.6s ease-out forwards',
+                        'slide-up': 'slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        },
+                        slideUp: {
+                            '0%': { opacity: '0', transform: 'translateY(20px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body {
+            background-color: #050505;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(40, 40, 45, 0.4) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(212, 175, 55, 0.03) 0%, transparent 40%);
+            color: #e5e5e5;
+            min-height: 100vh;
+        }
+        
+        .glass-panel {
+            background: rgba(18, 18, 20, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        /* 截图专用样式：移除透明度，使用纯色背景，防止html2canvas渲染失败 */
+        .snapshot-mode {
+            background: #0e0e12 !important;
+            backdrop-filter: none !important;
+            box-shadow: none !important;
+            border: 1px solid #333 !important;
+            transform: none !important;
+            animation: none !important;
+            border-radius: 0 !important; /* 防止圆角切割问题 */
+        }
+
+        .capture-bg {
+            background-color: #08080a; 
+            background-image: radial-gradient(circle at 50% 0%, #1a1a1e 0%, #08080a 60%);
+        }
+
+        /* --- Magazine Typography Styles --- */
+        
+        .article-container h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 2.5rem;
+            line-height: 1.2;
+            color: #fff;
+            margin-bottom: 1.5rem;
+            letter-spacing: -0.02em;
+        }
+
+        .article-content {
+            font-family: 'Noto Serif SC', serif; 
+            color: #c0c0c0;
+            line-height: 1.8;
+            font-size: 1.05rem;
+        }
+
+        /* Drop Cap (First Letter) */
+        .article-content > p:first-of-type::first-letter {
+            float: left;
+            font-family: 'Playfair Display', serif;
+            font-size: 3.5rem;
+            line-height: 0.85;
+            font-weight: 700;
+            padding-right: 12px;
+            padding-top: 4px;
+            color: #d4af37;
+        }
+
+        .article-content h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.5rem;
+            color: #e5e5e5;
+            margin-top: 2.5rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+        }
+        
+        .article-content h2::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: rgba(212, 175, 55, 0.2);
+            margin-left: 1rem;
+        }
+
+        .article-content h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #d4af37;
+            margin-top: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .article-content p {
+            margin-bottom: 1.5rem;
+            text-align: justify;
+        }
+
+        .article-content ul {
+            list-style: none;
+            padding-left: 1rem;
+            margin-bottom: 1.5rem;
+            border-left: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .article-content li {
+            position: relative;
+            padding-left: 1.5rem;
+            margin-bottom: 0.8rem;
+            font-size: 0.95rem;
+        }
+        
+        .article-content li::before {
+            content: '•';
+            color: #d4af37;
+            position: absolute;
+            left: 0;
+            font-size: 1.2em;
+            line-height: 1;
+        }
+
+        .article-content blockquote {
+            position: relative;
+            margin: 2.5rem 0;
+            padding: 1rem 2rem;
+            font-family: 'Playfair Display', serif;
+            font-style: italic;
+            font-size: 1.3rem;
+            line-height: 1.5;
+            color: #fff;
+            text-align: center;
+            border: none;
+        }
+        
+        .article-content blockquote::before {
+            content: '"';
+            font-size: 4rem;
+            color: rgba(212, 175, 55, 0.2);
+            position: absolute;
+            top: -1rem;
+            left: 0;
+        }
+
+        .article-content strong {
+            color: #fff;
+            font-weight: 600;
+        }
+        
+        /* KaTeX Overrides for dark mode */
+        .katex { font-size: 1.1em; color: #e0e0e0; }
+
+        /* Loader */
+        .loader-line {
+            height: 1px;
+            width: 100%;
+            position: relative;
+            overflow: hidden;
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        .loader-line:before {
+            display: block;
+            position: absolute;
+            content: "";
+            left: -200px;
+            width: 200px;
+            height: 1px;
+            background-color: #d4af37;
+            animation: loading 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes loading {
+            0% {left: -200px; width: 30%;}
+            50% {width: 30%;}
+            70% {width: 70%;}
+            100% {left: 100%;}
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body class="antialiased selection:bg-gold selection:text-black">
+
+    <!-- Top Navigation -->
+    <nav class="fixed top-0 w-full z-50 border-b border-white/5 bg-obsidian/90 backdrop-blur-md">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3 cursor-pointer" onclick="location.reload()">
+                <div class="w-8 h-8 rounded bg-gradient-to-br from-gold/20 to-transparent flex items-center justify-center border border-white/10">
+                    <i data-lucide="compass" class="text-gold w-4 h-4"></i>
+                </div>
+                <span class="font-serif text-lg tracking-wide font-medium text-white">Outlier</span>
+            </div>
+            <div class="flex items-center gap-4">
+                <button id="api-btn" class="text-[10px] uppercase tracking-widest text-gray-500 hover:text-white transition-colors flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-white/5">
+                    <i data-lucide="key" class="w-3 h-3"></i> API Key
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Layout -->
+    <main class="pt-24 pb-12 px-4 sm:px-6 max-w-7xl mx-auto min-h-screen flex flex-col md:flex-row gap-8 relative">
+        
+        <!-- Left Column: Profile -->
+        <div class="w-full md:w-1/3 lg:w-1/4 flex flex-col gap-6 animate-fade-in z-10" id="profile-column">
+            <div class="glass-panel rounded-xl p-6 relative overflow-hidden" id="profile-card">
+                <!-- Background Decoration -->
+                <div class="absolute -top-10 -right-10 w-40 h-40 bg-gold/5 rounded-full blur-3xl pointer-events-none"></div>
+                
+                <div class="flex justify-between items-center mb-4 border-b border-white/5 pb-4">
+                    <h2 class="font-serif text-lg text-white">认知舒适圈</h2>
+                    <button id="download-profile-btn" class="text-gray-500 hover:text-gold transition-colors p-1" title="下载画像">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+                <!-- Input -->
+                <div class="space-y-4">
+                    <div class="relative">
+                        <input type="text" id="interest-input" placeholder="输入熟悉的领域..." 
+                            class="w-full bg-black/40 border border-white/10 rounded-lg pl-4 pr-10 py-3 text-sm focus:outline-none focus:border-gold/50 transition-colors text-white placeholder-gray-600 font-light">
+                        <button id="add-btn" class="absolute right-2 top-2 p-1 text-gray-400 hover:text-white">
+                            <i data-lucide="plus-circle" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <label class="text-[10px] uppercase tracking-wider text-gray-500">熟练度</label>
+                            <span id="range-value" class="text-xs text-gold font-mono">50%</span>
+                        </div>
+                        <input type="range" id="depth-input" min="1" max="100" value="50" class="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+
+                <!-- Tags -->
+                <div id="tags-container" class="mt-6 flex flex-wrap gap-2 max-h-[30vh] overflow-y-auto pr-1">
+                    <div class="text-xs text-gray-600 italic w-full text-center py-4">暂无数据，添加以开始...</div>
+                </div>
+            </div>
+
+            <button id="generate-btn" class="w-full py-4 bg-gold hover:bg-[#b8962e] text-black font-medium rounded-xl shadow-[0_4px_20px_rgba(212,175,55,0.15)] transition-all transform hover:scale-[1.01] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                <i data-lucide="sparkles" class="w-4 h-4"></i>
+                <span class="font-serif tracking-wide">打破回音室</span>
+            </button>
+        </div>
+
+        <!-- Right Column: Results & Content -->
+        <div class="w-full md:w-2/3 lg:w-3/4 relative min-h-[600px]">
+            
+            <!-- LIST VIEW -->
+            <div id="list-view" class="flex flex-col gap-6 transition-all duration-500">
+                <!-- Loading -->
+                <div id="loading-state" class="hidden absolute inset-0 z-10 flex flex-col items-center justify-center bg-obsidian/80 backdrop-blur-sm rounded-2xl">
+                    <div class="w-48 mb-6">
+                        <div class="loader-line"></div>
+                    </div>
+                    <p class="font-serif text-xl text-gray-200" id="loading-text">正在连接思维网络...</p>
+                </div>
+
+                <!-- Empty State -->
+                <div id="empty-state" class="h-full flex flex-col items-center justify-center min-h-[500px] text-center px-8 border border-dashed border-white/5 rounded-2xl bg-white/[0.01]">
+                    <i data-lucide="telescope" class="w-10 h-10 text-gray-700 mb-4"></i>
+                    <h3 class="font-serif text-2xl text-gray-400 mb-2">探索未知</h3>
+                    <p class="text-gray-600 max-w-sm text-sm font-light">
+                        你的每一次点击，都是对算法牢笼的一次越狱。
+                    </p>
+                </div>
+
+                <!-- Results Grid -->
+                <div id="results-grid" class="hidden grid grid-cols-1 gap-6 pb-20"></div>
+            </div>
+
+            <!-- DETAIL VIEW (The "Magazine") -->
+            <div id="detail-view" class="hidden absolute inset-0 z-30 bg-obsidian flex flex-col animate-slide-up rounded-xl overflow-hidden border border-white/5 shadow-2xl">
+                <!-- Toolbar -->
+                <div class="h-14 border-b border-white/5 flex items-center justify-between px-6 bg-charcoal/80 backdrop-blur-xl sticky top-0 z-40">
+                    <button id="back-btn" class="text-gray-400 hover:text-white flex items-center gap-2 text-xs uppercase tracking-wider transition-colors group">
+                        <i data-lucide="arrow-left" class="w-4 h-4 group-hover:-translate-x-1 transition-transform"></i> 返回列表
+                    </button>
+                    <button id="download-article-btn" class="text-gold/80 hover:text-gold flex items-center gap-2 text-xs uppercase tracking-wider transition-colors border border-gold/20 hover:border-gold/50 px-3 py-1.5 rounded">
+                        <i data-lucide="download" class="w-3 h-3"></i> 收藏文章
+                    </button>
+                </div>
+
+                <!-- Scrollable Content -->
+                <div class="flex-1 overflow-y-auto custom-scrollbar bg-obsidian" id="detail-content-wrapper">
+                    <div id="detail-loading" class="absolute inset-0 flex flex-col items-center justify-center bg-obsidian z-50">
+                        <i data-lucide="loader" class="w-6 h-6 text-gold animate-spin mb-3"></i>
+                        <span class="text-gray-500 text-xs font-mono uppercase tracking-widest">Writing...</span>
+                    </div>
+
+                    <!-- Capture Area -->
+                    <div id="article-capture-area" class="capture-bg min-h-full pb-16">
+                        
+                        <!-- Article Header Image/Abstract -->
+                        <div class="h-48 w-full bg-gradient-to-b from-charcoal to-obsidian relative flex items-center justify-center overflow-hidden">
+                            <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
+                            <div class="absolute w-[500px] h-[500px] bg-gold/5 rounded-full blur-[100px] top-[-200px]"></div>
+                            <i data-lucide="book-open" class="text-white/10 w-24 h-24 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"></i>
+                        </div>
+
+                        <!-- Article Body -->
+                        <div class="max-w-3xl mx-auto px-8 md:px-12 -mt-12 relative z-10">
+                            
+                            <!-- Metadata -->
+                            <div class="flex items-center gap-4 mb-6 text-[10px] uppercase tracking-widest text-gold/80 font-medium">
+                                <span id="article-category">Philosophy</span>
+                                <span class="w-1 h-1 rounded-full bg-gray-600"></span>
+                                <span id="article-time">5 Min Read</span>
+                            </div>
+
+                            <!-- Title -->
+                            <h1 id="article-title" class="font-serif text-3xl md:text-5xl text-white mb-8 leading-tight">
+                                <!-- Title Injected Here -->
+                            </h1>
+
+                            <!-- Content -->
+                            <div id="detail-content" class="article-content">
+                                <!-- Markdown Injected Here -->
+                            </div>
+
+                            <!-- Footer -->
+                            <div class="mt-16 pt-8 border-t border-white/5 flex justify-between items-center text-gray-600 text-xs">
+                                <div class="font-serif italic text-gray-500">Generated by Outlier</div>
+                                <div class="font-mono" id="article-date">2023.10.24</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- API Modal -->
+    <div id="api-modal" class="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div class="glass-panel w-full max-w-md p-8 rounded-2xl transform scale-95 transition-transform duration-300" id="api-modal-content">
+            <div class="flex items-center gap-3 mb-6">
+                <i data-lucide="cpu" class="text-gold w-6 h-6"></i>
+                <h3 class="font-serif text-xl text-white">Neural Link</h3>
+            </div>
+            <p class="text-sm text-gray-400 mb-6 font-light">
+                Outlier 需要连接到 Gemini 模型以构建您的认知反面。Key 仅在本地存储。
+            </p>
+            <input type="password" id="api-key-input" class="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-gold/50 focus:outline-none mb-4" placeholder="Paste Google AI Studio Key here...">
+            <div class="flex gap-3 justify-end">
+                <button type="button" id="close-modal-btn" class="px-4 py-2 text-xs uppercase tracking-widest text-gray-500 hover:text-white transition-colors">取消</button>
+                <button type="button" id="save-api-btn" class="px-6 py-2 bg-gold hover:bg-[#b8962e] text-black text-xs font-bold uppercase tracking-widest rounded transition-colors">连接</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="fixed bottom-8 right-8 bg-charcoal border border-white/10 text-white px-6 py-4 rounded-lg shadow-2xl transform translate-y-32 transition-transform duration-300 z-[100] flex items-center gap-4">
+        <div id="toast-icon-bg" class="w-8 h-8 rounded-full bg-green-900/30 flex items-center justify-center">
+            <i data-lucide="check" class="w-4 h-4 text-green-500" id="toast-icon"></i>
+        </div>
+        <span id="toast-msg" class="text-sm font-medium">Ready</span>
+    </div>
+
+    <script>
+        // --- DOM Selectors ---
+        const $ = (id) => document.getElementById(id);
+        
+        // --- State ---
+        const state = {
+            interests: [],
+            apiKey: '',
+            currentArticleTitle: '',
+        };
+
+        // --- Init ---
+        window.addEventListener('DOMContentLoaded', () => {
+            loadState();
+            lucide.createIcons();
+            $('article-date').innerText = new Date().toLocaleDateString('zh-CN', {year: 'numeric', month: 'long', day: 'numeric'});
+            
+            // --- Event Bindings (Strictly Checked) ---
+            $('depth-input').addEventListener('input', (e) => $('range-value').innerText = e.target.value + '%');
+            
+            $('add-btn').addEventListener('click', addInterest);
+            $('interest-input').addEventListener('keypress', (e) => e.key === 'Enter' && addInterest());
+            
+            $('api-btn').addEventListener('click', openModal);
+            
+            // Fix 1: Ensure Correct Event Bindings for Modal
+            $('close-modal-btn').onclick = closeModal; // Using onclick to ensure single binding
+            $('save-api-btn').onclick = saveKey;     // Using onclick to ensure single binding
+            
+            $('generate-btn').addEventListener('click', generateCards);
+            
+            $('back-btn').addEventListener('click', () => switchView('list'));
+            
+            // Download Bindings
+            $('download-profile-btn').addEventListener('click', downloadProfile);
+            $('download-article-btn').addEventListener('click', downloadArticle);
+        });
+
+        // --- LocalStorage ---
+        function loadState() {
+            const k = localStorage.getItem('outlier_key');
+            const i = localStorage.getItem('outlier_ints');
+            if(k) state.apiKey = k;
+            if(i) {
+                try { state.interests = JSON.parse(i); renderTags(); } catch(e){}
+            }
+        }
+        function saveState() {
+            localStorage.setItem('outlier_ints', JSON.stringify(state.interests));
+            if(state.apiKey) localStorage.setItem('outlier_key', state.apiKey);
+        }
+
+        // --- Logic: Interest Tags ---
+        function addInterest() {
+            const val = $('interest-input').value.trim();
+            if(!val) return;
+            state.interests.push({ name: val, depth: $('depth-input').value });
+            saveState();
+            renderTags();
+            $('interest-input').value = '';
+        }
+
+        window.removeInterest = (idx) => {
+            state.interests.splice(idx, 1);
+            saveState();
+            renderTags();
+        }
+
+        function renderTags() {
+            const container = $('tags-container');
+            container.innerHTML = '';
+            if(!state.interests.length) {
+                container.innerHTML = '<div class="text-xs text-gray-600 italic w-full text-center py-4">暂无数据...</div>';
+                return;
+            }
+            state.interests.forEach((item, i) => {
+                const d = document.createElement('div');
+                d.className = 'flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-300 animate-fade-in group hover:border-gold/30 transition-colors';
+                d.innerHTML = `
+                    <span>${item.name}</span>
+                    <span class="text-[10px] text-gray-600 font-mono">L${Math.floor(item.depth/10)}</span>
+                    <button onclick="removeInterest(${i})" class="text-gray-600 hover:text-red-400"><i data-lucide="x" class="w-3 h-3"></i></button>
+                `;
+                container.appendChild(d);
+            });
+            lucide.createIcons();
+        }
+
+        // --- Logic: API Modal ---
+        function openModal() {
+            const m = $('api-modal');
+            const c = $('api-modal-content');
+            m.classList.remove('hidden');
+            // Small delay for transition
+            setTimeout(() => {
+                m.classList.remove('opacity-0');
+                c.classList.remove('scale-95');
+                c.classList.add('scale-100');
+            }, 10);
+            $('api-key-input').value = state.apiKey;
+        }
+
+        function closeModal() {
+            const m = $('api-modal');
+            const c = $('api-modal-content');
+            m.classList.add('opacity-0');
+            c.classList.add('scale-95');
+            setTimeout(() => m.classList.add('hidden'), 300);
+        }
+
+        function saveKey() {
+            const k = $('api-key-input').value.trim();
+            if(!k) {
+                showToast('API Key 不能为空', 'err');
+                return;
+            }
+            state.apiKey = k;
+            saveState();
+            showToast('API Key 已连接');
+            closeModal();
+        }
+
+        function showToast(msg, type='ok') {
+            const t = $('toast');
+            $('toast-msg').innerText = msg;
+            const icon = $('toast-icon');
+            if(type === 'ok') {
+                icon.setAttribute('class', 'w-4 h-4 text-green-500');
+                $('toast-icon-bg').className = 'w-8 h-8 rounded-full bg-green-900/30 flex items-center justify-center';
+            } else {
+                icon.setAttribute('class', 'w-4 h-4 text-red-500');
+                $('toast-icon-bg').className = 'w-8 h-8 rounded-full bg-red-900/30 flex items-center justify-center';
+            }
+            t.classList.remove('translate-y-32');
+            setTimeout(() => t.classList.add('translate-y-32'), 3000);
+        }
+
+        // --- Logic: Generation ---
+        async function generateCards() {
+            if(!state.apiKey) return openModal();
+            if(!state.interests.length) return showToast('请先添加兴趣', 'err');
+
+            setLoading(true);
+            
+            // Robust prompt to ensure JSON
+            const prompt = `
+            User interests: [${state.interests.map(i => i.name).join(', ')}].
+            Generate 3 topics that are intellectually opposite/orthogonal to these.
+            Return ONLY JSON without markdown formatting. Format:
+            [{"title": "...", "category": "...", "desc": "...", "reason": "...", "starter": "..."}]
+            Title, desc, reason must be in Chinese.
+            `;
+
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${state.apiKey}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const data = await res.json();
+                
+                if(!data.candidates) throw new Error("API Error");
+                
+                const txt = data.candidates[0].content.parts[0].text;
+                // Clean markdown
+                const jsonStr = txt.replace(/```json|```/g, '').trim();
+                const json = JSON.parse(jsonStr);
+                renderCards(json);
+            } catch(e) {
+                console.error(e);
+                showToast('生成失败: ' + e.message, 'err');
+                setLoading(false);
+            }
+        }
+
+        function renderCards(cards) {
+            const grid = $('results-grid');
+            grid.innerHTML = '';
+            cards.forEach((c, i) => {
+                const el = document.createElement('div');
+                el.id = `card-${i}`;
+                // Removed animate-slide-up here, will add via JS to avoid capture issues later, or handle carefully
+                el.className = 'glass-panel capture-bg rounded-xl p-8 border-t border-t-white/10 relative overflow-hidden group hover:border-gold/30 transition-all duration-300'; 
+                // Add fade in manually
+                el.style.opacity = '0';
+                el.style.transform = 'translateY(10px)';
+                setTimeout(() => {
+                    el.style.opacity = '1';
+                    el.style.transform = 'translateY(0)';
+                }, 50 + i*100);
+
+                el.innerHTML = `
+                    <div class="flex justify-between items-start mb-4">
+                        <span class="text-[10px] uppercase tracking-widest text-gold/70 font-semibold border border-gold/10 px-2 py-1 rounded">${c.category}</span>
+                        <button onclick="downloadCard('card-${i}', '${c.title}')" class="text-gray-600 hover:text-white transition-colors p-2 rounded hover:bg-white/5" title="下载图片"><i data-lucide="image-down" class="w-4 h-4"></i></button>
+                    </div>
+                    <h3 class="font-serif text-2xl text-white mb-4 group-hover:text-gold transition-colors duration-300">${c.title}</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed mb-6 font-light">${c.desc}</p>
+                    <div class="border-t border-white/5 pt-4 mb-6">
+                        <div class="text-[10px] text-gray-500 mb-1 uppercase tracking-wider">Why recommended</div>
+                        <div class="text-xs text-gray-400 italic font-serif">"${c.reason}"</div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="openDeepDive('${c.title.replace(/'/g, "\\'")}', '${c.category.replace(/'/g, "\\'")}')" class="flex items-center justify-center gap-2 py-3 bg-white/5 hover:bg-white/10 rounded-lg text-sm text-gray-200 transition-colors border border-white/5">
+                            <i data-lucide="book-open" class="w-4 h-4 text-gold"></i> 深度阅读
+                        </button>
+                        <button onclick="window.open('https://google.com/search?q=${encodeURIComponent(c.starter)}')" class="flex items-center justify-center gap-2 py-3 bg-transparent hover:bg-white/5 rounded-lg text-sm text-gray-400 hover:text-white transition-colors border border-white/5">
+                            Google <i data-lucide="external-link" class="w-3 h-3"></i>
+                        </button>
+                    </div>
+                `;
+                grid.appendChild(el);
+            });
+            setLoading(false);
+            grid.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        // --- Logic: Deep Dive ---
+        function switchView(v) {
+            const list = $('list-view');
+            const detail = $('detail-view');
+            
+            if(v === 'detail') {
+                list.classList.add('hidden');
+                detail.classList.remove('hidden');
+            } else {
+                detail.classList.add('hidden');
+                list.classList.remove('hidden');
+            }
+        }
+
+        async function openDeepDive(title, cat) {
+            switchView('detail');
+            const loader = $('detail-loading');
+            const content = $('detail-content');
+            
+            loader.classList.remove('hidden');
+            content.innerHTML = '';
+            
+            $('article-title').innerText = title;
+            $('article-category').innerText = cat;
+            state.currentArticleTitle = title;
+
+            const prompt = `
+            Task: Write a sophisticated, magazine-style article in Chinese about "${title}".
+            Target: Intellectual curiosity.
+            Structure (Strict Markdown):
+            1. Start directly with the first paragraph. No title repeat.
+            2. Use ## for section headers (elegant, short).
+            3. Use > for profound quotes.
+            4. Use * for bullet points.
+            5. If mentioning formulas, use LaTeX enclosed in $$.
+            6. Tone: Philosophical, insightful.
+            7. Length: ~500 words.
+            `;
+
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${state.apiKey}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const data = await res.json();
+                let md = data.candidates[0].content.parts[0].text;
+                
+                // LaTeX fixes
+                md = md.replace(/\\\[/g, '$$').replace(/\\\]/g, '$$');
+
+                content.innerHTML = marked.parse(md);
+
+                renderMathInElement(content, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false}
+                    ],
+                    throwOnError: false
+                });
+
+                loader.classList.add('hidden');
+
+            } catch(e) {
+                console.error(e);
+                showToast('文章生成失败', 'err');
+                switchView('list');
+            }
+        }
+
+        function setLoading(b) {
+            if(b) {
+                $('empty-state').classList.add('hidden');
+                $('results-grid').classList.add('hidden');
+                $('loading-state').classList.remove('hidden');
+                $('generate-btn').disabled = true;
+                $('generate-btn').classList.add('opacity-50');
+            } else {
+                $('loading-state').classList.add('hidden');
+                $('generate-btn').disabled = false;
+                $('generate-btn').classList.remove('opacity-50');
+            }
+        }
+
+        // --- Logic: Download Images (Fix 2) ---
+
+        /**
+         * Helper to capture any element even if it has backdrop-filter
+         */
+        async function robustCapture(elementId, fileName) {
+            const element = document.getElementById(elementId);
+            if (!element) return;
+
+            showToast('正在生成图片...', 'ok');
+
+            // 1. Prepare element: remove glass effects, set solid background
+            // We use a specific class to override styles temporarily
+            element.classList.add('snapshot-mode');
+
+            // 2. Wait a tick for styles to apply
+            await new Promise(r => setTimeout(r, 50));
+
+            try {
+                const canvas = await html2canvas(element, {
+                    scale: 2, // Retina quality
+                    useCORS: true, // Allow loading external images
+                    backgroundColor: '#08080a', // Force background color
+                    logging: false,
+                    allowTaint: true,
+                    // If it's a scrolling container (like the article), we need full height
+                    height: element.scrollHeight,
+                    windowHeight: element.scrollHeight
+                });
+
+                // 3. Download
+                const link = document.createElement('a');
+                link.download = fileName;
+                link.href = canvas.toDataURL('image/png');
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                showToast('图片已保存');
+
+            } catch (err) {
+                console.error("Capture failed:", err);
+                showToast('图片生成失败', 'err');
+            } finally {
+                // 4. Restore styles
+                element.classList.remove('snapshot-mode');
+            }
+        }
+
+        window.downloadCard = (id, title) => {
+            robustCapture(id, `Outlier-Card-${title}.png`);
+        };
+
+        window.downloadProfile = () => {
+            robustCapture('profile-card', 'Outlier-Profile.png');
+        };
+
+        window.downloadArticle = () => {
+            // Check if loaded
+            if(!$('detail-loading').classList.contains('hidden')) return;
+            robustCapture('article-capture-area', `Outlier-Article-${state.currentArticleTitle}.png`);
+        };
+
+    </script>
+</body>
+</html>
+
+
